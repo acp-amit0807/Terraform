@@ -1,63 +1,35 @@
+## Goal (in plain English)
 
-## 1️⃣ Input Variable (Data Handling: map, list)
-variable "storage_accounts" {
-  type = map(object({
-    env        = string
-    ip_rules  = list(string)
-  }))
+Create 1 or 2 storage accounts
+
+If environment is prod:
+  Enable soft delete
+  Protect from delete
+
+If not prod:
+  Skip these
+
+  `variable "env" {
+  default = "prod"
 }
 
+resource "azurerm_storage_account" "demo" {
 
-Example value:
+  # 1️⃣ RESOURCE CONTROL (count)
+  count = var.env == "prod" ? 1 : 2
 
-storage_accounts = {
-  stprod = {
-    env       = "prod"
-    ip_rules = ["10.0.0.0/24"]
-  }
-  stdev = {
-    env       = "dev"
-    ip_rules = []
-  }
-}
-
-2️⃣ Locals (Iteration + Data Handling)
-locals {
-  # iteration + if
-  prod_accounts = {
-    for name, cfg in var.storage_accounts :
-    name => cfg if cfg.env == "prod"
-  }
-
-  # data handling
-  common_tags = {
-    owner = "platform"
-  }
-}
-
-3️⃣ Resource (USES ALL CONCEPTS)
-resource "azurerm_storage_account" "sa" {
-  # Resource control
-  for_each = var.storage_accounts
-
-  name                     = each.key
+  name                     = "stdemo${count.index}"
   resource_group_name      = azurerm_resource_group.rg.name
   location                 = azurerm_resource_group.rg.location
   account_tier             = "Standard"
   account_replication_type = "LRS"
 
-  # Conditions (? :)
-  enable_https_traffic_only = each.value.env == "prod" ? true : false
+  # 2️⃣ CONDITIONS (? :)
+  enable_https_traffic_only = var.env == "prod" ? true : false
 
-  # Data handling (merge)
-  tags = merge(
-    local.common_tags,
-    { env = each.value.env }
-  )
-
-  # Optional block (dynamic)
+  # 3️⃣ OPTIONAL BLOCK (dynamic)
   dynamic "blob_properties" {
-    for_each = each.value.env == "prod" ? [1] : []
+    for_each = var.env == "prod" ? [1] : []
 
     content {
       delete_retention_policy {
@@ -66,70 +38,61 @@ resource "azurerm_storage_account" "sa" {
     }
   }
 
-  # Optional block (dynamic)
-  dynamic "network_rules" {
-    for_each = each.value.env == "prod" ? [1] : []
-
-    content {
-      default_action = "Deny"
-      ip_rules       = each.value.ip_rules
-    }
-  }
-
-  # Lifecycle (resource control)
+  # 4️⃣ RESOURCE CONTROL (lifecycle)
   lifecycle {
-    prevent_destroy = each.value.env == "prod"
+    prevent_destroy = var.env == "prod"
   }
 
-  # Explicit dependency
+  # 5️⃣ DEPENDENCY
   depends_on = [
     azurerm_resource_group.rg
   ]
 }
+`
 
-🧠 NOW LET’S MAP EACH CONCEPT (THIS IS THE KEY)
-✅ Resource Control
+NOW UNDERSTAND THIS LINE BY LINE
+1️⃣ count
+count = var.env == "prod" ? 1 : 2
 
-for_each → multiple accounts
 
-depends_on → order
+👉 PROD → 1 account
+👉 NON-PROD → 2 accounts
 
-lifecycle.prevent_destroy → protect PROD
+2️⃣ ? : (Condition)
+enable_https_traffic_only = var.env == "prod" ? true : false
 
-🔁 Iteration
 
-for_each → loop storage accounts
+👉 If prod → secure
+👉 Else → relaxed
 
-for ... if → filter prod accounts in locals
+3️⃣ dynamic
+for_each = var.env == "prod" ? [1] : []
 
-🚦 Conditions
 
-env == "prod" ? true : false
+👉 [1] → create block once
+👉 [] → skip block
 
-Used for:
+4️⃣ lifecycle
+prevent_destroy = var.env == "prod"
 
-HTTPS enforcement
 
-Soft delete
+👉 PROD → cannot delete
+👉 NON-PROD → deletable
 
-Network rules
+5️⃣ depends_on
+depends_on = [azurerm_resource_group.rg]
 
-📦 Data Handling
 
-map → storage_accounts
+👉 RG first, then storage
 
-list → ip_rules
+🧒 10-YEAR-OLD VERSION
 
-merge() → tags
+“If this is PROD, make one storage box, lock it, and add safety.
+If not, make two boxes and don’t lock them.”
 
-for + if → filtered locals
-
-🧩 Optional Blocks
-
-dynamic "blob_properties" → soft delete only in PROD
-
-dynamic "network_rules" → security only in PROD
-
-[1] → create once
-
-[] → skip
+🎯 THIS IS THE KEY TAKEAWAY
+Concept	Where you saw it
+Resource control	count, lifecycle, depends_on
+Conditions	? :
+Optional blocks	dynamic
+Iteration	count.index
