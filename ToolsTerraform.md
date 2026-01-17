@@ -1,6 +1,6 @@
-# ================================
+
 # ONE BLOCK – ALL TERRAFORM CONCEPTS
-# ================================
+
 
 variable "env" {
   default = "prod" # change to "dev" to see different behavior
